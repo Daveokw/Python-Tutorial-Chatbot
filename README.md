@@ -4,7 +4,7 @@ A lightweight Streamlit chatbot that retrieves concise explanations and examples
 
 [Open the live application](https://python-tutorial-chatbot.streamlit.app/)
 
-## Overview
+## Overview 
 
 The application is a free portfolio prototype with no paid API, account, secret, external database, or runtime model download. It uses a bundled 40-topic knowledge base, weighted lexical retrieval, exact phrase matching, common synonym expansion, programming-symbol interpretation, and character-level typo tolerance to select a grounded response. When the available content does not support a question, it says so instead of inventing an answer.
 
