@@ -4,7 +4,7 @@ A lightweight Streamlit chatbot that retrieves concise explanations and examples
 
 [Open the live application](https://python-tutorial-chatbot.streamlit.app/)
 
-## Overview 
+## Overview
 
 The application is a free portfolio prototype with no paid API, account, secret, external database, or runtime model download. It uses a bundled 40-topic knowledge base, weighted lexical retrieval, exact phrase matching, common synonym expansion, programming-symbol interpretation, and character-level typo tolerance to select a grounded response. When the available content does not support a question, it says so instead of inventing an answer.
 
@@ -85,7 +85,9 @@ The tests cover knowledge validation, common questions, comparison questions, mi
 
 Deploy `app.py` from the repository root. Streamlit Community Cloud installs the single pinned dependency from `requirements.txt`; no secrets or operating-system packages are required.
 
-The GitHub Actions availability workflow checks the deployed interface every four hours and can request that Streamlit wake a sleeping application. Scheduled workflows are best-effort and cannot guarantee that a free Community Cloud application will never hibernate.
+The GitHub Actions availability workflow checks the deployed interface every four hours and can request that Streamlit wake a sleeping application. The monthly `Record Repository Activity` workflow updates `.github/repository-heartbeat.txt` so the public repository continues to have activity even when no code is being developed. It requires Actions to be allowed to write repository contents. This creates one small bot commit per month and does not guarantee that a free Community Cloud application will never hibernate.
+
+GitHub may automatically disable scheduled workflows in a public repository after 60 days without repository activity. The heartbeat is intended to prevent that condition, but if a workflow has already been disabled it must first be re-enabled from the repository's Actions page, GitHub CLI, or REST API.
 
 ## Limitations
 
