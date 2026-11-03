@@ -100,6 +100,45 @@ async function waitForApplication(page, timeoutMs) {
   throw new Error(`The application did not become ready after the wake-up request. Observed frames: ${await observedFrames(page)}`);
 }
 
+async function openApp(page, target) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    let failure;
+    let response;
+    try {
+      response = await page.goto(target, {
+        waitUntil: 'domcontentloaded',
+        timeout: 45000,
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    if (!failure && (!response || response.status() < 400)) return;
+    if (!failure) {
+      failure = new Error(`The app returned HTTP ${response.status()}.`);
+      if (![403, 408, 429, 500, 502, 503, 504].includes(response.status())) throw failure;
+    }
+
+    if (attempt === 3) throw failure;
+    console.log(`${failure.message} Retrying in 10 seconds (${attempt}/3).`);
+    await page.waitForTimeout(10000);
+  }
+}
+
+async function openReadyApp(page, target) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      await openApp(page, target);
+      return await waitForState(page, INITIAL_STATE_TIMEOUT_MS);
+    } catch (error) {
+      if (attempt === 2) throw error;
+      console.log(`The chatbot interface was not detected (${error.message}). Reloading once in 15 seconds.`);
+      await page.waitForTimeout(15000);
+    }
+  }
+  throw new Error('The chatbot interface could not be verified after a reload.');
+}
+
 async function run() {
   let browser;
   let page;
@@ -111,16 +150,7 @@ async function run() {
     browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
     page = await context.newPage();
-    const response = await page.goto(target, {
-      waitUntil: 'domcontentloaded',
-      timeout: 90000,
-    });
-
-    if (response && response.status() >= 400) {
-      throw new Error(`The app returned HTTP ${response.status()}.`);
-    }
-
-    const result = await waitForState(page, INITIAL_STATE_TIMEOUT_MS);
+    const result = await openReadyApp(page, target);
     if (result.state === 'sleeping') {
       console.log('The app is asleep; submitting the wake-up request.');
       await result.wakeControl.click({ timeout: 10000 });

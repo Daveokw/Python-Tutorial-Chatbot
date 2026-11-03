@@ -1,6 +1,12 @@
 name: Keep Streamlit App Awake
 
 on:
+  push:
+    paths:
+      - .github/workflows/keep_alive.yml
+      - keep_alive.js
+      - package.json
+      - package-lock.json
   schedule:
     - cron: "11 */4 * * *"
   workflow_dispatch:
