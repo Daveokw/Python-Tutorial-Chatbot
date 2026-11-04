@@ -116,7 +116,7 @@ async function openApp(page, target) {
     if (!failure) {
       const loadedUrl = new URL(page.url());
       if (loadedUrl.hostname === 'share.streamlit.io' || loadedUrl.pathname.startsWith('/-/login')) {
-        throw new Error('The Streamlit app requires sign-in. Set its sharing access to public before running this availability check.');
+        throw new Error('The app redirected to Streamlit sign-in. Save the public sharing setting, then confirm it opens in an incognito window before running this availability check.');
       }
       if (!response || response.status() < 400) return;
     }
