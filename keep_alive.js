@@ -1,8 +1,18 @@
-const { chromium } = require('playwright');
+let chromium;
+try {
+  chromium = require('playwright').chromium;
+} catch (_) {
+  // Playwright is installed in CI workflows; allowed to be absent in unit tests
+}
 
 const DEFAULT_ALLOWED_HOST = 'python-tutorial-chatbot.streamlit.app';
+const APP_HEADING = 'Python Tutorial Chatbot';
 const FAILURE_SCREENSHOT = 'keep_alive_screenshot.png';
+const INITIAL_STATE_TIMEOUT_MS = 120000;
+const WAKE_TIMEOUT_MS = 300000;
 const CONNECTION_HOLD_MS = 15000;
+const POLL_INTERVAL_MS = 1000;
+const WAKE_CONTROL_PATTERN = /wake(?: up)?|back up|restart(?: this)? app|run(?: this)? app/i;
 
 function validatedTarget(rawValue) {
   if (!rawValue) {
@@ -25,6 +35,76 @@ function validatedTarget(rawValue) {
   return target.toString();
 }
 
+async function firstVisible(page, locatorFactory) {
+  for (const frame of page.frames()) {
+    const locator = locatorFactory(frame).first();
+    if (await locator.isVisible().catch(() => false)) {
+      return locator;
+    }
+  }
+  return null;
+}
+
+async function applicationIsReady(page) {
+  for (const frame of page.frames()) {
+    const heading = frame.getByRole('heading').filter({ hasText: APP_HEADING }).first();
+    const appContainer = frame.locator('[data-testid="stAppViewContainer"]').first();
+    const headingVisible = await heading.isVisible().catch(() => false);
+    const containerVisible = await appContainer.isVisible().catch(() => false);
+    if (headingVisible && containerVisible) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function visibleWakeControl(page) {
+  const button = await firstVisible(page, (frame) => frame.getByRole('button', {
+    name: WAKE_CONTROL_PATTERN,
+  }));
+  if (button) {
+    return button;
+  }
+  return firstVisible(page, (frame) => frame.getByRole('link', {
+    name: WAKE_CONTROL_PATTERN,
+  }));
+}
+
+async function observedFrames(page) {
+  const observations = [];
+  for (const frame of page.frames()) {
+    const text = await frame.locator('body').innerText().catch(() => '');
+    observations.push(`${frame.url()} :: ${text.replace(/\s+/g, ' ').trim().slice(0, 160) || '[no body text]'}`);
+  }
+  return observations.join(' | ');
+}
+
+async function waitForState(page, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await applicationIsReady(page)) {
+      return { state: 'ready' };
+    }
+    const wakeControl = await visibleWakeControl(page);
+    if (wakeControl) {
+      return { state: 'sleeping', wakeControl };
+    }
+    await page.waitForTimeout(POLL_INTERVAL_MS);
+  }
+  throw new Error(`Neither the application nor a Streamlit wake-up control became visible. Observed frames: ${await observedFrames(page)}`);
+}
+
+async function waitForApplication(page, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await applicationIsReady(page)) {
+      return;
+    }
+    await page.waitForTimeout(POLL_INTERVAL_MS);
+  }
+  throw new Error(`The application did not become ready after the wake-up request. Observed frames: ${await observedFrames(page)}`);
+}
+
 async function openApp(page, target) {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     let failure;
@@ -39,6 +119,10 @@ async function openApp(page, target) {
     }
 
     if (!failure) {
+      const loadedUrl = new URL(page.url());
+      if (loadedUrl.hostname === 'share.streamlit.io' || loadedUrl.pathname.startsWith('/-/login')) {
+        throw new Error('The app redirected to Streamlit sign-in. Save the public sharing setting, then confirm it opens in an incognito window before running this availability check.');
+      }
       if (!response || response.status() < 400) return;
     }
     if (!failure) {
@@ -52,6 +136,20 @@ async function openApp(page, target) {
   }
 }
 
+async function openReadyApp(page, target) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      await openApp(page, target);
+      return await waitForState(page, INITIAL_STATE_TIMEOUT_MS);
+    } catch (error) {
+      if (attempt === 2) throw error;
+      console.log(`The chatbot interface was not detected (${error.message}). Reloading once in 15 seconds.`);
+      await page.waitForTimeout(15000);
+    }
+  }
+  throw new Error('The chatbot interface could not be verified after a reload.');
+}
+
 async function run() {
   let browser;
   let page;
@@ -60,12 +158,22 @@ async function run() {
     const target = validatedTarget(process.argv[2]);
     console.log('Starting the Python Tutorial Chatbot availability check.');
 
+    if (!chromium) chromium = require('playwright').chromium;
     browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
     page = await context.newPage();
-    await openApp(page, target);
+    const result = await openReadyApp(page, target);
+    if (result.state === 'sleeping') {
+      console.log('The app is asleep; submitting the wake-up request.');
+      await result.wakeControl.click({ timeout: 10000 });
+      await waitForApplication(page, WAKE_TIMEOUT_MS);
+    }
+
     await page.waitForTimeout(CONNECTION_HOLD_MS);
-    console.log('The chatbot app connection completed successfully.');
+    if (!(await applicationIsReady(page))) {
+      throw new Error('The application became unavailable during verification.');
+    }
+    console.log('The application interface is visible and responsive.');
   } catch (error) {
     console.error(`Availability check failed: ${error.message}`);
     process.exitCode = 1;
@@ -83,4 +191,5 @@ async function run() {
   }
 }
 
-run();
+if (require.main === module) run();
+module.exports = { validatedTarget };
